@@ -14,6 +14,7 @@ class ScrapeEngine:
     def __init__(self, headless: bool = True) -> None:
         self.headless = headless
         self.http = HttpScraper()
+        self.coverage_warnings: List[str] = []
 
     def run(
         self,
@@ -61,6 +62,21 @@ class ScrapeEngine:
         filtered = apply_filters(all_rows, plan.filters)
         if plan.max_items:
             filtered = filtered[: plan.max_items]
+
+        # Surface coverage gaps when a site declared a much larger catalog
+        self.coverage_warnings: List[str] = []
+        declared = getattr(self.http, "last_declared_totals", []) or []
+        scraped_by_site: dict = {}
+        for row in filtered:
+            site = str(row.get("_site") or "")
+            scraped_by_site[site] = scraped_by_site.get(site, 0) + 1
+        for site_name, total in declared:
+            got = scraped_by_site.get(site_name, 0)
+            if total > 0 and got < total * 0.5:
+                self.coverage_warnings.append(
+                    f"{site_name}: scraped {got} rows but site reports ~{total} results. "
+                    "Pagination may have stopped early, or max_pages/max_items is too low."
+                )
         return filtered
 
     def _scrape_one(

@@ -1,6 +1,6 @@
 {
   "title": "Used tractors Klaravik + Mascus",
-  "goal": "Extract used tractor listings: product name, price, model year, url; also report listing counts",
+  "goal": "Comprehensive extract of used tractor listings: product name, price, model year, url",
   "fields": [
     {"name": "product_name", "description": "Listing title", "required": true},
     {"name": "price", "description": "Price or current bid"},
@@ -21,7 +21,7 @@
         {"name": "url", "selector": "a", "attribute": "href"}
       ],
       "pagination_selector": null,
-      "max_pages": 1,
+      "max_pages": 500,
       "login": null,
       "wait_for_selector": null,
       "extra_urls": []
@@ -30,17 +30,17 @@
       "name": "Mascus tractors SE",
       "start_url": "https://www.mascus.se/lantbruksmaskiner/traktorer",
       "method": "http",
-      "notes": "Listings come from embedded __NEXT_DATA__ JSON",
+      "notes": "Listings from __NEXT_DATA__; engine paginates mechanically until empty",
       "list_selector": null,
       "fields": [],
       "pagination_selector": null,
-      "max_pages": 1,
+      "max_pages": 500,
       "login": null,
       "wait_for_selector": null,
       "extra_urls": []
     }
   ],
   "filters": {},
-  "max_items": 100,
-  "notes": "Run: python main.py run plans/tractors_klaravik_mascus.json -y"
+  "max_items": null,
+  "notes": "Comprehensive pull. Run: python main.py run plans/tractors_klaravik_mascus.json -y"
 }

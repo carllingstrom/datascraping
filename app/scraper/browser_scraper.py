@@ -7,12 +7,8 @@ from bs4 import BeautifulSoup
 
 from app.models import FieldSpec, LoginSpec, SiteSpec
 from app.scraper.auth import maybe_env_credentials, prompt_credentials
-from app.scraper.extract import (
-    extract_with_selectors,
-    heuristic_product_cards,
-    meta_fallback,
-    parse_json_ld_products,
-)
+from app.scraper.extract import extract_page_rows
+from app.scraper.urls import guess_next_page, normalize_url
 
 
 class BrowserScraper:
@@ -75,7 +71,7 @@ class BrowserScraper:
         visited = set()
 
         for start in urls:
-            page_url = start
+            page_url: Optional[str] = normalize_url(start) or start
             for _ in range(max_pages):
                 if not page_url or page_url in visited:
                     break
@@ -88,42 +84,31 @@ class BrowserScraper:
                     page.wait_for_timeout(800)
                 html = page.content()
                 soup = BeautifulSoup(html, "lxml")
-                rows = self._extract_page(soup, page_url, site, fields)
+                rows, _source = extract_page_rows(soup, page_url, site.list_selector, fields)
                 for row in rows:
                     row.setdefault("_site", site.name)
                     row.setdefault("_page", page_url)
                 collected.extend(rows)
 
                 next_url = None
+                if not rows:
+                    page.close()
+                    break
                 if site.pagination_selector:
                     nxt = page.query_selector(site.pagination_selector)
                     if nxt:
                         href = nxt.get_attribute("href")
                         if href:
-                            next_url = urljoin(page_url, href)
+                            candidate = normalize_url(urljoin(page_url, href))
+                            if candidate and candidate not in visited:
+                                next_url = candidate
+                else:
+                    guessed = guess_next_page(page_url, soup)
+                    if guessed:
+                        candidate = normalize_url(guessed)
+                        if candidate and candidate not in visited:
+                            next_url = candidate
                 page.close()
                 page_url = next_url
 
         return collected
-
-    def _extract_page(
-        self,
-        soup: BeautifulSoup,
-        page_url: str,
-        site: SiteSpec,
-        fields: List[FieldSpec],
-    ) -> List[dict]:
-        if site.list_selector or any(f.selector for f in fields):
-            rows = extract_with_selectors(soup, page_url, site.list_selector, fields)
-            if rows:
-                return rows
-        ld = parse_json_ld_products(soup, page_url)
-        if ld:
-            return ld
-        cards = heuristic_product_cards(soup, page_url)
-        if cards:
-            return cards
-        meta = meta_fallback(soup, page_url)
-        if meta.get("name"):
-            return [meta]
-        return []

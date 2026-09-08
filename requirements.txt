@@ -11,6 +11,8 @@ pydantic>=2.0.0
 # AI — Claude (Ollama needs no pip package; uses httpx)
 anthropic>=0.40.0
 
+# Optional browser UI (local or tunneled)
+streamlit>=1.28.0
+
 # Optional browser path (JS pages / login):
-#   pip install playwright && playwright install chromium
-# playwright>=1.40.0
+#   pip install -r requirements-browser.txt && playwright install chromium

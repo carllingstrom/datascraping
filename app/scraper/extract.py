@@ -155,7 +155,7 @@ def heuristic_product_cards(soup: BeautifulSoup, page_url: str) -> List[Dict[str
         "article.product_card, [class*='product'], [class*='item'], [data-product], article, .card"
     )
     seen = set()
-    for card in candidates[:200]:
+    for card in candidates[:2000]:
         link = card.find("a", href=True)
         if not link:
             continue

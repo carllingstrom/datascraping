@@ -1,19 +1,13 @@
 # DataScraper
 
-Internal CLI tool: chat with an AI to define a scrape baseline, then let Python walk the sites and export Excel.
-
-## Why CLI
-
-Least to carry between machines — Python + `pip install -r requirements.txt`. No Streamlit server.
+Internal tool: chat with an AI to define a scrape baseline, then let Python walk the sites and export Excel.
 
 ## Flow
 
 1. **Chat** (Ollama or Claude) → agree on goal, sites, fields, filters, login-or-not  
-2. AI emits a **ScrapePlan** JSON  
-3. **Python engine** fetches pages (HTTP by default; Playwright only if JS/login)  
+2. AI emits a **ScrapePlan** JSON (live-preview checked)  
+3. **Python engine** paginates mechanically until empty (or `max_pages`)  
 4. Results → **Excel** in `output/`
-
-AI plans. Python scrapes. Credentials are prompted only when a plan site requires login.
 
 ## Setup
 
@@ -28,14 +22,11 @@ cp .env.example .env
 ### Ollama (default)
 
 ```bash
-# install Ollama separately, then:
 ollama pull llama3.2
 # AI_PROVIDER=ollama in .env
 ```
 
 ### Claude
-
-Set in `.env`:
 
 ```
 AI_PROVIDER=claude
@@ -44,38 +35,51 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 ### Browser scrapes (optional)
 
-Only needed for JS-heavy pages or login:
-
 ```bash
 pip install -r requirements-browser.txt
 playwright install chromium
 ```
 
-## Usage
+## Usage (CLI)
 
 ```bash
-# interactive planner + scrape
-python main.py
-# or
 python main.py chat
 python main.py chat --provider claude
-python main.py chat --provider ollama --model llama3.2
-
-# re-run a saved plan
-python main.py run plans/my_plan.json
-
-# show provider config
+python main.py run plans/tractors_klaravik_mascus.json -y
 python main.py providers
 ```
 
-### In-chat commands
+In-chat: `/plan` · `/save` · `/run` · `/quit`
 
-| Command | Action |
-|---------|--------|
-| `/plan` | Show current plan |
-| `/save` | Save plan JSON under `plans/` |
-| `/run`  | Execute scrape → Excel |
-| `/quit` | Exit |
+For a **comprehensive** pull: leave `max_items` null and set `max_pages` high (default **500**). The engine stops when a page returns no rows.
+
+## Streamlit UI
+
+### Local
+
+```bash
+streamlit run streamlit_app.py
+# http://127.0.0.1:8501
+```
+
+### Streamlit Community Cloud (no Mac required)
+
+1. Push this repo to GitHub (already: `carllingstrom/datascraping`).
+2. Go to [share.streamlit.io](https://share.streamlit.io) → **New app**.
+3. Choose repo `carllingstrom/datascraping`, branch `main`, main file `streamlit_app.py`.
+4. Under **Advanced settings → Secrets**, paste:
+
+```toml
+AI_PROVIDER = "claude"
+ANTHROPIC_API_KEY = "sk-ant-your-key"
+ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
+MAX_PAGES_DEFAULT = "500"
+ENRICH_DETAIL_LIMIT = "0"
+```
+
+5. Deploy — you’ll get a `https://….streamlit.app` URL.
+
+Cloud hosts cannot reach Ollama on your laptop; use Claude there. Large scrapes may take several minutes on the free tier.
 
 ## Plan shape (simplified)
 
@@ -93,15 +97,13 @@ python main.py providers
       "name": "Example",
       "start_url": "https://example.com/widgets",
       "method": "http",
-      "max_pages": 3,
+      "max_pages": 500,
       "login": null
     }
   ],
-  "filters": {"keywords": ["widget"], "max_price": 500},
-  "max_items": 100
+  "filters": {},
+  "max_items": null
 }
 ```
 
-Leave selectors empty when unsure — the engine tries JSON-LD → CSS selectors → listing heuristics → OpenGraph meta.
-
-Set `"method": "browser"` and a `login` object only when you need them; passwords are never stored in the plan.
+Leave selectors empty when unsure. Set `"method": "browser"` and `login` only when needed.

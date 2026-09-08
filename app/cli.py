@@ -240,6 +240,13 @@ def _execute_plan(plan: ScrapePlan, headless: bool = True, assume_yes: bool = Fa
     if counts:
         for site, n in counts.items():
             console.print(f"  • {site}: {n}")
+    for warning in getattr(engine, "coverage_warnings", []) or []:
+        console.print(f"[yellow]Coverage:[/yellow] {warning}")
+    if plan.max_items:
+        console.print(
+            f"[yellow]Note:[/yellow] plan.max_items={plan.max_items} capped the export. "
+            "Set max_items to null for a comprehensive pull."
+        )
     safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in plan.title)[:40]
     out = rows_to_excel(rows, filename=safe or None)
     console.print(f"[green]Excel written → {out}[/green]")

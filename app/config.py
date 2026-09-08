@@ -29,7 +29,9 @@ class Settings:
         "USER_AGENT",
         "Mozilla/5.0 (compatible; DataScraper/1.0; internal)",
     )
-    max_pages_default: int = _int("MAX_PAGES_DEFAULT", 5)
+    max_pages_default: int = _int("MAX_PAGES_DEFAULT", 500)
+    # 0 = enrich every row that needs a detail fetch (slower, comprehensive)
+    enrich_detail_limit: int = _int("ENRICH_DETAIL_LIMIT", 0)
     output_dir: Path = ROOT / os.getenv("OUTPUT_DIR", "output")
     plans_dir: Path = ROOT / os.getenv("PLANS_DIR", "plans")
 
