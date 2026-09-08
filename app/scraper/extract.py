@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -226,21 +226,33 @@ def extract_next_data_listings(soup: BeautifulSoup, page_url: str) -> List[Dict[
             href = urljoin(page_url, str(href))
         if not name and not href:
             continue
-        rows.append(
-            {
-                "name": name,
-                "product_name": name,
-                "brand": _clean(str(brand)),
-                "model": _clean(str(model)),
-                "price": price,
-                "model_year": str(year) if year not in (None, "") else "",
-                "hours": str(item.get("meterReadout") or ""),
-                "location": _clean(str(item.get("locationCity") or "")),
-                "sku": _clean(str(item.get("productId") or item.get("sku") or "")),
-                "url": _clean(str(href)),
-                "_source": "next-data",
-            }
-        )
+        # Curated, human-friendly names for the fields this shape usually carries...
+        row: Dict[str, Any] = {
+            "name": name,
+            "product_name": name,
+            "brand": _clean(str(brand)),
+            "model": _clean(str(model)),
+            "price": price,
+            "currency": _clean(str(currency)),
+            "model_year": str(year) if year not in (None, "") else "",
+            "hours": str(item.get("meterReadout") or ""),
+            "location": _clean(str(item.get("locationCity") or "")),
+            "country": _clean(str(item.get("locationCountryCode") or "")),
+            "category": _clean(str(item.get("categoryName") or item.get("catalogName") or "")),
+            "listing_date": _clean(str(item.get("createDate") or "")),
+            "listing_id": _clean(
+                str(item.get("productId") or item.get("rbListingID") or item.get("sku") or "")
+            ),
+            "seller_name": _clean(str(item.get("companyName") or "")),
+            "sku": _clean(str(item.get("productId") or item.get("sku") or "")),
+            "url": _clean(str(href)),
+            "_source": "next-data",
+        }
+        # ...plus every raw key verbatim, so a plan field that names the site's own
+        # JSON key directly (spotted via preview) still comes through untouched.
+        for key, value in item.items():
+            row.setdefault(key, value)
+        rows.append(row)
     return rows
 
 
@@ -307,8 +319,23 @@ def apply_filters(rows: List[Dict[str, Any]], filters: Dict[str, Any]) -> List[D
         keywords = [keywords]
     keywords = [str(k).lower() for k in keywords if k]
 
+    # Accept both the flat shape (min_price/max_price) and a nested {"price": {"min": .., "max": ..}}
+    # shape models sometimes emit — support both so a filter never silently gets dropped.
     min_price = filters.get("min_price")
     max_price = filters.get("max_price")
+    price_block = filters.get("price")
+    if isinstance(price_block, dict):
+        min_price = min_price if min_price is not None else price_block.get("min")
+        max_price = max_price if max_price is not None else price_block.get("max")
+
+    # field_in: {"field_name": ["value1", "value2", ...]} — case-insensitive substring match
+    # against that row field. Lets a plan restrict to e.g. specific countries/categories
+    # when that can't be expressed via the site's own URL.
+    field_in: Dict[str, List[str]] = {}
+    for key, values in (filters.get("field_in") or {}).items():
+        if isinstance(values, str):
+            values = [values]
+        field_in[str(key)] = [str(v).lower() for v in values if v]
 
     out: List[Dict[str, Any]] = []
     for row in rows:
@@ -320,6 +347,16 @@ def apply_filters(rows: List[Dict[str, Any]], filters: Dict[str, Any]) -> List[D
             continue
         if max_price is not None and price_num is not None and price_num > float(max_price):
             continue
+        if field_in:
+            row_lower = {str(k).lower(): str(v).lower() for k, v in row.items()}
+            skip = False
+            for field_name, allowed in field_in.items():
+                value = row_lower.get(field_name.lower(), "")
+                if not any(a in value for a in allowed):
+                    skip = True
+                    break
+            if skip:
+                continue
         out.append(row)
     return out
 
@@ -337,9 +374,57 @@ def _parse_price(value: Any) -> Optional[float]:
         return None
 
 
+def extract_page_rows(
+    soup: BeautifulSoup,
+    page_url: str,
+    list_selector: Optional[str],
+    fields: List[FieldSpec],
+) -> Tuple[List[Dict[str, Any]], str]:
+    """Run the full extraction cascade once. Returns (rows, source_used).
+
+    Shared by the real scraper and the preview tool so a plan can be sanity-checked
+    against the live page before committing to a multi-page run.
+    """
+    if list_selector or any(f.selector for f in fields):
+        rows = extract_with_selectors(soup, page_url, list_selector, fields)
+        if rows:
+            return rows, "selectors"
+    rows = extract_next_data_listings(soup, page_url)
+    if rows:
+        return rows, "next-data"
+    rows = parse_json_ld_products(soup, page_url)
+    if rows:
+        return rows, "json-ld"
+    rows = heuristic_product_cards(soup, page_url)
+    if rows:
+        return rows, "heuristic"
+    meta = meta_fallback(soup, page_url)
+    if meta.get("name"):
+        return [meta], "meta"
+    return [], "none"
+
+
+# Common alternate names a site's own data might use for a field the plan asked for.
+# Matched case-insensitively against whatever raw keys extract_next_data_listings /
+# parse_json_ld_products left on the row (see extract_next_data_listings's key passthrough).
+_FIELD_SYNONYMS: Dict[str, List[str]] = {
+    "model_year": ["yearofmanufacture", "modelyear", "year"],
+    "hours": ["meterreadout", "odometer", "mileage"],
+    "country": ["locationcountrycode", "country", "companycountry"],
+    "category": ["categoryname", "catalogname", "category"],
+    "listing_date": ["createdate", "listingdate", "datepublished", "datePosted"],
+    "listing_id": ["productid", "rblistingid", "listingid", "sku"],
+    "make_model": ["brand_model", "brandmodel"],
+    "price": ["priceoriginal", "priceinusercurrency", "price"],
+    "currency": ["priceoriginalunit", "usercurrency", "currency"],
+    "seller": ["companyname", "seller_name", "sellername"],
+}
+
+
 def merge_field_map(row: Dict[str, Any], fields: List[FieldSpec]) -> Dict[str, Any]:
-    """Ensure planned field names exist on the row."""
+    """Ensure planned field names exist on the row, filling from known synonyms first."""
     out = dict(row)
+    lower_keys = {str(k).lower(): k for k in row.keys()}
     # common aliases
     if "product_name" in {f.name for f in fields} and not out.get("product_name"):
         out["product_name"] = out.get("name", "")
@@ -348,5 +433,12 @@ def merge_field_map(row: Dict[str, Any], fields: List[FieldSpec]) -> Dict[str, A
     if "listings" in {f.name for f in fields}:
         out.setdefault("listings", "")
     for field in fields:
+        if out.get(field.name):
+            continue
+        for synonym in _FIELD_SYNONYMS.get(field.name.lower(), []):
+            source_key = lower_keys.get(synonym.lower())
+            if source_key and row.get(source_key) not in (None, ""):
+                out[field.name] = row[source_key]
+                break
         out.setdefault(field.name, out.get(field.name, ""))
     return out

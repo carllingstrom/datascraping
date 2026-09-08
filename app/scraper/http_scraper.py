@@ -8,15 +8,8 @@ from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.models import FieldSpec, SiteSpec
-from app.scraper.extract import (
-    extract_next_data_listings,
-    extract_with_selectors,
-    heuristic_product_cards,
-    meta_fallback,
-    parse_json_ld_products,
-    _year_from_text,
-)
-from app.scraper.urls import normalize_url
+from app.scraper.extract import extract_page_rows, meta_fallback, _year_from_text
+from app.scraper.urls import guess_next_page, normalize_url
 
 
 class HttpScraper:
@@ -72,12 +65,23 @@ class HttpScraper:
                     row.setdefault("_page", page_url)
                 collected.extend(rows)
 
+                if not rows:
+                    # Empty page — results are exhausted; stop paginating this start URL
+                    # rather than requesting further pages that can only be more of the same.
+                    break
+
                 next_url = None
                 if site.pagination_selector:
                     nxt = soup.select_one(site.pagination_selector)
                     href = nxt.get("href") if nxt else None
                     if href:
                         candidate = normalize_url(urljoin(page_url, href))
+                        if candidate and candidate not in visited:
+                            next_url = candidate
+                else:
+                    guessed = guess_next_page(page_url, soup)
+                    if guessed:
+                        candidate = normalize_url(guessed)
                         if candidate and candidate not in visited:
                             next_url = candidate
                 page_url = next_url
@@ -96,32 +100,8 @@ class HttpScraper:
         site: SiteSpec,
         fields: List[FieldSpec],
     ) -> List[dict]:
-        # 1) explicit selectors
-        if site.list_selector or any(f.selector for f in fields):
-            rows = extract_with_selectors(soup, page_url, site.list_selector, fields)
-            if rows:
-                return rows
-
-        # 2) Next.js embedded JSON (Mascus and similar)
-        nxt = extract_next_data_listings(soup, page_url)
-        if nxt:
-            return nxt
-
-        # 3) JSON-LD products
-        ld = parse_json_ld_products(soup, page_url)
-        if ld:
-            return ld
-
-        # 4) heuristic listing cards
-        cards = heuristic_product_cards(soup, page_url)
-        if cards:
-            return cards
-
-        # 5) single-page meta fallback
-        meta = meta_fallback(soup, page_url)
-        if meta.get("name"):
-            return [meta]
-        return []
+        rows, _source = extract_page_rows(soup, page_url, site.list_selector, fields)
+        return rows
 
     def _enrich_years(self, rows: List[dict], limit: int = 40) -> List[dict]:
         pending = [

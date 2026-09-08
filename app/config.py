@@ -23,6 +23,8 @@ class Settings:
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
     anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
     request_timeout: int = _int("REQUEST_TIMEOUT", 30)
+    ollama_timeout: int = _int("OLLAMA_TIMEOUT", 300)
+    ollama_num_ctx: int = _int("OLLAMA_NUM_CTX", 8192)
     user_agent: str = os.getenv(
         "USER_AGENT",
         "Mozilla/5.0 (compatible; DataScraper/1.0; internal)",

@@ -14,7 +14,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from app.ai.client import AIClient, AIError
-from app.ai.planner import PlannerSession
+from app.ai.planner import PlannerSession, plan_is_weak
 from app.config import settings
 from app.export.excel import rows_to_excel
 from app.models import ScrapePlan
@@ -57,6 +57,38 @@ def show_plan(plan: ScrapePlan) -> None:
     console.print(f"[bold]Fields:[/bold] {fields}")
     if plan.notes:
         console.print(f"[bold]Notes:[/bold] {plan.notes}")
+
+
+def show_preview(previews, user_supplied_urls: Optional[list] = None) -> None:
+    user_supplied_urls = user_supplied_urls or []
+    table = Table(title="Live preview (page 1 only, before running the full scrape)")
+    table.add_column("Site")
+    table.add_column("URL source")
+    table.add_column("Rows found")
+    table.add_column("Extracted via")
+    table.add_column("Sample")
+    any_ai_guessed = False
+    for site, result in previews:
+        from_user = site.start_url in user_supplied_urls
+        if from_user:
+            source_str = "[green]you[/green]"
+        else:
+            source_str = "[yellow]AI-guessed[/yellow]"
+            any_ai_guessed = True
+        if not result.get("ok"):
+            table.add_row(site.name, source_str, "0", "[red]error[/red]", result.get("error", ""))
+            continue
+        sample = result["sample"][0] if result["sample"] else {}
+        sample_str = ", ".join(f"{k}={v}" for k, v in list(sample.items())[:4] if v)
+        count = result["count"]
+        count_str = f"[red]{count}[/red]" if count <= 1 else f"[green]{count}[/green]"
+        table.add_row(site.name, source_str, count_str, result["source"], sample_str[:100])
+    console.print(table)
+    if any_ai_guessed:
+        console.print(
+            "[yellow]One or more URLs above were guessed by the AI, not given by you — "
+            "verify them (or just paste the exact page you want) before trusting the results.[/yellow]"
+        )
 
 
 def cmd_chat(args: argparse.Namespace) -> int:
@@ -127,21 +159,47 @@ def cmd_chat(args: argparse.Namespace) -> int:
                 continue
             return _execute_plan(plan, headless=not args.headed, assume_yes=args.yes)
 
-        # normal chat turn
+        # normal chat turn — never let an unexpected error kill the whole session;
+        # print it and let the user keep chatting instead.
         try:
             with console.status("Thinking..."):
                 reply, maybe_plan = session.ask(text)
         except AIError as exc:
             console.print(f"[red]{exc}[/red]")
             continue
+        except Exception as exc:  # noqa: BLE001
+            console.print(f"[red]Unexpected error while chatting: {exc}[/red]")
+            continue
 
         console.print(Panel(Markdown(reply), title="assistant", border_style="blue"))
         if maybe_plan:
-            plan = maybe_plan
+            try:
+                with console.status("Checking the plan against the live page(s)..."):
+                    plan, previews, transcript = session.refine_with_preview(maybe_plan)
+            except Exception as exc:  # noqa: BLE001
+                console.print(f"[red]Live preview check failed unexpectedly: {exc}[/red]")
+                console.print("[yellow]Using the plan as drafted, unverified.[/yellow]")
+                plan, previews, transcript = maybe_plan, [], []
+            for extra_reply in transcript:
+                console.print(
+                    Panel(
+                        Markdown(extra_reply),
+                        title="assistant (auto-correcting after live preview)",
+                        border_style="yellow",
+                    )
+                )
+            if previews:
+                show_preview(previews, session.user_supplied_urls)
             console.print(
                 "[green]Plan captured.[/green] Type [bold]/run[/bold] to scrape, "
                 "[bold]/plan[/bold] to review, [bold]/save[/bold] to store."
             )
+            if plan_is_weak(previews):
+                console.print(
+                    "[yellow]Heads up: the live preview still looks thin (0-1 rows). "
+                    "Running now will likely reproduce that. Consider giving a more specific "
+                    "URL, or /run anyway if you want to see the raw result.[/yellow]"
+                )
             if args.yes or Confirm.ask("Run this scrape now?", default=False):
                 return _execute_plan(plan, headless=not args.headed, assume_yes=True)
 

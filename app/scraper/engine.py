@@ -50,14 +50,18 @@ class ScrapeEngine:
                 )
                 for row in rows:
                     all_rows.append(merge_field_map(row, enrich_fields))
-                if plan.max_items and len(all_rows) >= plan.max_items:
-                    all_rows = all_rows[: plan.max_items]
-                    break
+                # NOTE: max_items is enforced once, below, on the final filtered result —
+                # never here. Capping mid-loop meant a single early site filling the quota
+                # on its own (easy with multi-page pagination) silently skipped every site
+                # listed after it, with no error or warning.
         finally:
             if browser is not None:
                 browser.__exit__(None, None, None)
 
-        return apply_filters(all_rows, plan.filters)
+        filtered = apply_filters(all_rows, plan.filters)
+        if plan.max_items:
+            filtered = filtered[: plan.max_items]
+        return filtered
 
     def _scrape_one(
         self,

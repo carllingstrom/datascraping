@@ -84,13 +84,17 @@ class AIClient:
         payload_messages.extend(messages)
         url = f"{settings.ollama_base_url}/api/chat"
         try:
-            with httpx.Client(timeout=120.0) as client:
+            with httpx.Client(timeout=settings.ollama_timeout) as client:
                 resp = client.post(
                     url,
                     json={
                         "model": self.model,
                         "messages": payload_messages,
                         "stream": False,
+                        # Ollama defaults to a 4096-token context regardless of what the model
+                        # itself supports — with our system prompt plus a real conversation this
+                        # is easy to overrun, which silently truncates input rather than erroring.
+                        "options": {"num_ctx": settings.ollama_num_ctx},
                     },
                 )
                 if resp.status_code >= 400:
@@ -106,18 +110,35 @@ class AIClient:
                             f"Details: {detail}"
                         )
                     raise AIError(f"Ollama error ({resp.status_code}): {detail}")
-                data = resp.json()
+                try:
+                    data = resp.json()
+                except ValueError as exc:
+                    raise AIError(
+                        f"Ollama returned a non-JSON response (truncated stream, or the "
+                        f"connection dropped mid-reply). Try a shorter message or resend: {exc}"
+                    ) from exc
         except AIError:
             raise
         except httpx.ConnectError as exc:
             raise AIError(
                 f"Cannot reach Ollama at {settings.ollama_base_url}. Is `ollama serve` running?"
             ) from exc
+        except httpx.TimeoutException as exc:
+            raise AIError(
+                f"Ollama request timed out after {settings.ollama_timeout}s. Local CPU inference "
+                "gets slower the longer this message + conversation history is — try a shorter "
+                "message, or raise OLLAMA_TIMEOUT in .env if the model is just genuinely slow on "
+                "this machine."
+            ) from exc
         except httpx.HTTPError as exc:
             raise AIError(f"Ollama request failed: {exc}") from exc
+        except Exception as exc:  # noqa: BLE001 — last-resort net: never let a chat turn crash the CLI
+            raise AIError(f"Ollama request failed unexpectedly: {exc}") from exc
 
+        if not isinstance(data, dict):
+            raise AIError(f"Unexpected Ollama response shape: {data!r}")
         message = data.get("message") or {}
-        content = message.get("content")
+        content = message.get("content") if isinstance(message, dict) else None
         if not content:
             raise AIError(f"Empty Ollama response: {data}")
         return content.strip()
@@ -138,15 +159,14 @@ class AIClient:
             kwargs["system"] = system
         try:
             resp = client.messages.create(**kwargs)
+            parts = []
+            for block in resp.content:
+                text = getattr(block, "text", None)
+                if text:
+                    parts.append(text)
+            content = "".join(parts).strip()
         except Exception as exc:  # noqa: BLE001
             raise AIError(f"Claude request failed: {exc}") from exc
-
-        parts = []
-        for block in resp.content:
-            text = getattr(block, "text", None)
-            if text:
-                parts.append(text)
-        content = "".join(parts).strip()
         if not content:
             raise AIError("Empty Claude response")
         return content
