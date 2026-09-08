@@ -1,0 +1,67 @@
+{
+  "title": "Books to Scrape demo",
+  "goal": "Demo scrape of book titles and prices from books.toscrape.com",
+  "fields": [
+    {
+      "name": "name",
+      "description": "Book title",
+      "selector": null,
+      "attribute": null,
+      "required": true
+    },
+    {
+      "name": "price",
+      "description": "Price",
+      "selector": null,
+      "attribute": null,
+      "required": false
+    },
+    {
+      "name": "url",
+      "description": "Product URL",
+      "selector": null,
+      "attribute": "href",
+      "required": false
+    }
+  ],
+  "sites": [
+    {
+      "name": "Books to Scrape",
+      "start_url": "https://books.toscrape.com/",
+      "method": "http",
+      "notes": "Public demo site — safe for testing",
+      "list_selector": "article.product_pod",
+      "fields": [
+        {
+          "name": "name",
+          "description": "",
+          "selector": "h3 a",
+          "attribute": "title",
+          "required": true
+        },
+        {
+          "name": "price",
+          "description": "",
+          "selector": "p.price_color",
+          "attribute": null,
+          "required": false
+        },
+        {
+          "name": "url",
+          "description": "",
+          "selector": "h3 a",
+          "attribute": "href",
+          "required": false
+        }
+      ],
+      "pagination_selector": "li.next a",
+      "max_pages": 1,
+      "login": null,
+      "wait_for_selector": null,
+      "extra_urls": []
+    }
+  ],
+  "filters": {},
+  "max_items": 20,
+  "notes": "Run with: python main.py run plans/example_books.json"
+}

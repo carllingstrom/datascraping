@@ -1,0 +1,94 @@
+{
+  "title": "Used tractors Klaravik + Mascus",
+  "goal": "Extract used tractor listings: product name, price, model year, url; also report listing counts",
+  "fields": [
+    {
+      "name": "product_name",
+      "description": "Listing title",
+      "selector": null,
+      "attribute": null,
+      "required": true
+    },
+    {
+      "name": "price",
+      "description": "Price or current bid",
+      "selector": null,
+      "attribute": null,
+      "required": false
+    },
+    {
+      "name": "model_year",
+      "description": "Model / manufacture year",
+      "selector": null,
+      "attribute": null,
+      "required": false
+    },
+    {
+      "name": "url",
+      "description": "Listing URL",
+      "selector": null,
+      "attribute": "href",
+      "required": false
+    },
+    {
+      "name": "sku",
+      "description": "Site product id if available",
+      "selector": null,
+      "attribute": null,
+      "required": false
+    }
+  ],
+  "sites": [
+    {
+      "name": "Klaravik tractors",
+      "start_url": "https://www.klaravik.se/auktion/?q=traktor",
+      "method": "http",
+      "notes": "Auction cards; model_year enriched from product detail meta",
+      "list_selector": "article.product_card",
+      "fields": [
+        {
+          "name": "product_name",
+          "description": "",
+          "selector": ".product_card__title",
+          "attribute": null,
+          "required": true
+        },
+        {
+          "name": "price",
+          "description": "",
+          "selector": ".product_card__current-bid",
+          "attribute": null,
+          "required": false
+        },
+        {
+          "name": "url",
+          "description": "",
+          "selector": "a",
+          "attribute": "href",
+          "required": false
+        }
+      ],
+      "pagination_selector": null,
+      "max_pages": 1,
+      "login": null,
+      "wait_for_selector": null,
+      "extra_urls": []
+    },
+    {
+      "name": "Mascus tractors SE",
+      "start_url": "https://www.mascus.se/lantbruksmaskiner/traktorer",
+      "method": "http",
+      "notes": "Listings come from embedded __NEXT_DATA__ JSON",
+      "list_selector": null,
+      "fields": [],
+      "pagination_selector": null,
+      "max_pages": 1,
+      "login": null,
+      "wait_for_selector": null,
+      "extra_urls": []
+    }
+  ],
+  "filters": {},
+  "max_items": 100,
+  "notes": "Run: python main.py run plans/tractors_klaravik_mascus.json -y"
+}
