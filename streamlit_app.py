@@ -44,18 +44,27 @@ def _apply_streamlit_secrets() -> None:
 
 
 def _running_on_streamlit_cloud() -> bool:
-    return bool(
-        os.getenv("STREAMLIT_SHARING_MODE")
-        or os.getenv("STREAMLIT_RUNTIME_ENV")
-        or os.getenv("HOSTNAME", "").endswith("streamlit.app")
-    )
+    """Best-effort detect Streamlit Community Cloud (env vars change over time)."""
+    if os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_RUNTIME_ENV"):
+        return True
+    hostname = (os.getenv("HOSTNAME") or "").lower()
+    if "streamlit" in hostname or hostname.endswith(".streamlit.app"):
+        return True
+    # Cloud checkouts typically live under /mount/src/<app>
+    try:
+        cwd = Path.cwd().as_posix()
+        if "/mount/src/" in cwd:
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
 
 
 _apply_streamlit_secrets()
 
-# Prefer Claude on Streamlit Cloud unless explicitly overridden
-if _running_on_streamlit_cloud() and not os.getenv("AI_PROVIDER"):
-    os.environ["AI_PROVIDER"] = "claude"
+# On Streamlit Cloud, prefer Claude (Ollama is not available remotely)
+if _running_on_streamlit_cloud():
+    os.environ.setdefault("AI_PROVIDER", "claude")
 
 from app.ai.client import AIClient, AIError  # noqa: E402
 from app.ai.planner import PlannerSession  # noqa: E402
