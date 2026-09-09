@@ -410,6 +410,7 @@ def extract_page_rows(
 _FIELD_SYNONYMS: Dict[str, List[str]] = {
     "model_name": ["model", "name", "product_name", "title"],
     "model_year": ["yearofmanufacture", "modelyear", "year", "car_year"],
+    "year": ["yearofmanufacture", "modelyear", "model_year", "car_year"],
     "hours": ["meterreadout", "odometer", "mileage"],
     "country": ["locationcountrycode", "country", "companycountry"],
     "category": ["categoryname", "catalogname", "category"],
