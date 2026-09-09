@@ -266,6 +266,16 @@ def cmd_providers(_: argparse.Namespace) -> int:
     console.print("Configured provider:", settings.ai_provider)
     console.print("Ollama:", settings.ollama_base_url, "/", settings.ollama_model)
     console.print(
+        "Gemini:",
+        settings.gemini_model,
+        "(key set)" if settings.gemini_api_key else "(no API key — free at aistudio.google.com/apikey)",
+    )
+    console.print(
+        "Groq:",
+        settings.groq_model,
+        "(key set)" if settings.groq_api_key else "(no API key — free at console.groq.com/keys)",
+    )
+    console.print(
         "Claude:",
         settings.anthropic_model,
         "(key set)" if settings.anthropic_api_key else "(no API key)",
@@ -281,7 +291,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
 
     chat = sub.add_parser("chat", help="Chat with AI to draft a scrape plan, then run it")
-    chat.add_argument("--provider", choices=["ollama", "claude"], default=None)
+    chat.add_argument(
+        "--provider",
+        choices=["ollama", "claude", "gemini", "groq"],
+        default=None,
+    )
     chat.add_argument("--model", default=None, help="Override model name")
     chat.add_argument("--headed", action="store_true", help="Show browser window when used")
     chat.add_argument("-y", "--yes", action="store_true", help="Skip confirmations")

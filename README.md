@@ -26,11 +26,29 @@ ollama pull llama3.2
 # AI_PROVIDER=ollama in .env
 ```
 
-### Claude
+### Claude (optional, paid API)
 
 ```
 AI_PROVIDER=claude
 ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### Free cloud APIs (recommended for Streamlit Cloud)
+
+**Google Gemini** (free key): https://aistudio.google.com/apikey
+
+```
+AI_PROVIDER=gemini
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-2.0-flash
+```
+
+**Groq** (free key): https://console.groq.com/keys
+
+```
+AI_PROVIDER=groq
+GROQ_API_KEY=gsk_...
+GROQ_MODEL=llama-3.3-70b-versatile
 ```
 
 ### Browser scrapes (optional)
@@ -67,19 +85,19 @@ streamlit run streamlit_app.py
 1. Push this repo to GitHub (already: `carllingstrom/datascraping`).
 2. Go to [share.streamlit.io](https://share.streamlit.io) → **New app**.
 3. Choose repo `carllingstrom/datascraping`, branch `main`, main file `streamlit_app.py`.
-4. Under **Advanced settings → Secrets**, paste:
+4. Under **Advanced settings → Secrets**, paste (Gemini is free):
 
 ```toml
-AI_PROVIDER = "claude"
-ANTHROPIC_API_KEY = "sk-ant-your-key"
-ANTHROPIC_MODEL = "claude-sonnet-4-20250514"
+AI_PROVIDER = "gemini"
+GEMINI_API_KEY = "your-key-from-aistudio.google.com"
+GEMINI_MODEL = "gemini-2.0-flash"
 MAX_PAGES_DEFAULT = "500"
 ENRICH_DETAIL_LIMIT = "0"
 ```
 
 5. Deploy — you’ll get a `https://….streamlit.app` URL.
 
-Cloud hosts cannot reach Ollama on your laptop; use Claude there. Large scrapes may take several minutes on the free tier.
+Cloud hosts cannot reach Ollama on your laptop. Use **gemini** or **groq** (free API keys) there. Large scrapes may take several minutes on the free tier.
 
 ## Plan shape (simplified)
 

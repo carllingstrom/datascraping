@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import httpx
 
 from app.config import settings
+
+PROVIDERS: Set[str] = {"ollama", "claude", "gemini", "groq"}
 
 
 class AIError(RuntimeError):
@@ -12,7 +14,7 @@ class AIError(RuntimeError):
 
 
 class AIClient:
-    """Thin unified chat client for Ollama (local) and Claude (Anthropic)."""
+    """Unified chat client: Ollama (local) + Claude / Gemini / Groq (API)."""
 
     def __init__(
         self,
@@ -20,62 +22,108 @@ class AIClient:
         model: Optional[str] = None,
     ) -> None:
         self.provider = (provider or settings.ai_provider).strip().lower()
-        if self.provider not in {"ollama", "claude"}:
-            raise AIError(f"Unknown AI_PROVIDER '{self.provider}'. Use ollama or claude.")
+        if self.provider not in PROVIDERS:
+            raise AIError(
+                f"Unknown AI_PROVIDER '{self.provider}'. "
+                f"Use one of: {', '.join(sorted(PROVIDERS))}."
+            )
+
         if self.provider == "ollama":
             self.model = model or settings.ollama_model
-        else:
+        elif self.provider == "claude":
             self.model = model or settings.anthropic_model
             if not settings.anthropic_api_key:
                 raise AIError(
-                    "ANTHROPIC_API_KEY is missing. Set it in .env or switch AI_PROVIDER=ollama."
+                    "ANTHROPIC_API_KEY is missing. Set it in .env / Streamlit secrets, "
+                    "or switch to AI_PROVIDER=gemini (free) or ollama (local)."
+                )
+        elif self.provider == "gemini":
+            self.model = model or settings.gemini_model
+            if not settings.gemini_api_key:
+                raise AIError(
+                    "GEMINI_API_KEY is missing.\n"
+                    "Get a free key: https://aistudio.google.com/apikey\n"
+                    "Then set GEMINI_API_KEY in .env or Streamlit secrets."
+                )
+        else:  # groq
+            self.model = model or settings.groq_model
+            if not settings.groq_api_key:
+                raise AIError(
+                    "GROQ_API_KEY is missing.\n"
+                    "Get a free key: https://console.groq.com/keys\n"
+                    "Then set GROQ_API_KEY in .env or Streamlit secrets."
                 )
 
     def chat(self, messages: List[Dict[str, str]], system: Optional[str] = None) -> str:
         if self.provider == "ollama":
             return self._ollama(messages, system)
-        return self._claude(messages, system)
+        if self.provider == "claude":
+            return self._claude(messages, system)
+        if self.provider == "gemini":
+            return self._openai_compatible(
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+                api_key=settings.gemini_api_key,
+                messages=messages,
+                system=system,
+                label="Gemini",
+            )
+        return self._openai_compatible(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=settings.groq_api_key,
+            messages=messages,
+            system=system,
+            label="Groq",
+        )
 
     def ping(self) -> str:
         """Verify the provider is reachable. Returns a short status string or raises AIError."""
         if self.provider == "ollama":
-            url = f"{settings.ollama_base_url}/api/tags"
+            return self._ping_ollama()
+        if self.provider == "claude":
             try:
-                with httpx.Client(timeout=5.0) as client:
-                    resp = client.get(url)
-                    resp.raise_for_status()
-                    data = resp.json()
-            except httpx.ConnectError as exc:
-                raise AIError(
-                    "Ollama is not running (nothing at "
-                    f"{settings.ollama_base_url}).\n"
-                    "Fix:\n"
-                    "  1) Install: https://ollama.com/download\n"
-                    "  2) Open the Ollama app (or run: ollama serve)\n"
-                    f"  3) Pull a model: ollama pull {self.model}\n"
-                    "  4) Re-run: python main.py chat\n"
-                    "Or use Claude: python main.py chat --provider claude"
-                ) from exc
-            except httpx.HTTPError as exc:
-                raise AIError(f"Ollama responded with an error: {exc}") from exc
+                import anthropic  # noqa: F401
+            except ImportError as exc:
+                raise AIError("anthropic package missing. Run: pip install anthropic") from exc
+            if not settings.anthropic_api_key:
+                raise AIError("ANTHROPIC_API_KEY missing in .env")
+            return f"claude ready ({self.model})"
+        if self.provider == "gemini":
+            if not settings.gemini_api_key:
+                raise AIError("GEMINI_API_KEY missing")
+            return f"gemini ready ({self.model}) — free-tier API"
+        if not settings.groq_api_key:
+            raise AIError("GROQ_API_KEY missing")
+        return f"groq ready ({self.model}) — free-tier API"
 
-            names = [m.get("name", "") for m in data.get("models") or []]
-            if not any(self.model in n or n.startswith(self.model) for n in names):
-                raise AIError(
-                    f"Ollama is up, but model '{self.model}' is not installed.\n"
-                    f"Available: {', '.join(names) or '(none)'}\n"
-                    f"Run: ollama pull {self.model}"
-                )
-            return f"ollama ok ({self.model})"
-
-        # Claude: light check that the SDK + key look usable
+    def _ping_ollama(self) -> str:
+        url = f"{settings.ollama_base_url}/api/tags"
         try:
-            import anthropic  # noqa: F401
-        except ImportError as exc:
-            raise AIError("anthropic package missing. Run: pip install anthropic") from exc
-        if not settings.anthropic_api_key:
-            raise AIError("ANTHROPIC_API_KEY missing in .env")
-        return f"claude ready ({self.model})"
+            with httpx.Client(timeout=5.0) as client:
+                resp = client.get(url)
+                resp.raise_for_status()
+                data = resp.json()
+        except httpx.ConnectError as exc:
+            raise AIError(
+                "Ollama is not running (nothing at "
+                f"{settings.ollama_base_url}).\n"
+                "Fix:\n"
+                "  1) Install: https://ollama.com/download\n"
+                "  2) Open the Ollama app (or run: ollama serve)\n"
+                f"  3) Pull a model: ollama pull {self.model}\n"
+                "  4) Re-run: python main.py chat\n"
+                "Or use a free cloud API: AI_PROVIDER=gemini / groq"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise AIError(f"Ollama responded with an error: {exc}") from exc
+
+        names = [m.get("name", "") for m in data.get("models") or []]
+        if not any(self.model in n or n.startswith(self.model) for n in names):
+            raise AIError(
+                f"Ollama is up, but model '{self.model}' is not installed.\n"
+                f"Available: {', '.join(names) or '(none)'}\n"
+                f"Run: ollama pull {self.model}"
+            )
+        return f"ollama ok ({self.model})"
 
     def _ollama(self, messages: List[Dict[str, str]], system: Optional[str]) -> str:
         payload_messages: List[Dict[str, str]] = []
@@ -91,9 +139,6 @@ class AIClient:
                         "model": self.model,
                         "messages": payload_messages,
                         "stream": False,
-                        # Ollama defaults to a 4096-token context regardless of what the model
-                        # itself supports — with our system prompt plus a real conversation this
-                        # is easy to overrun, which silently truncates input rather than erroring.
                         "options": {"num_ctx": settings.ollama_num_ctx},
                     },
                 )
@@ -114,8 +159,7 @@ class AIClient:
                     data = resp.json()
                 except ValueError as exc:
                     raise AIError(
-                        f"Ollama returned a non-JSON response (truncated stream, or the "
-                        f"connection dropped mid-reply). Try a shorter message or resend: {exc}"
+                        f"Ollama returned a non-JSON response. Try a shorter message: {exc}"
                     ) from exc
         except AIError:
             raise
@@ -125,14 +169,11 @@ class AIClient:
             ) from exc
         except httpx.TimeoutException as exc:
             raise AIError(
-                f"Ollama request timed out after {settings.ollama_timeout}s. Local CPU inference "
-                "gets slower the longer this message + conversation history is — try a shorter "
-                "message, or raise OLLAMA_TIMEOUT in .env if the model is just genuinely slow on "
-                "this machine."
+                f"Ollama request timed out after {settings.ollama_timeout}s."
             ) from exc
         except httpx.HTTPError as exc:
             raise AIError(f"Ollama request failed: {exc}") from exc
-        except Exception as exc:  # noqa: BLE001 — last-resort net: never let a chat turn crash the CLI
+        except Exception as exc:  # noqa: BLE001
             raise AIError(f"Ollama request failed unexpectedly: {exc}") from exc
 
         if not isinstance(data, dict):
@@ -170,3 +211,59 @@ class AIClient:
         if not content:
             raise AIError("Empty Claude response")
         return content
+
+    def _openai_compatible(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        messages: List[Dict[str, str]],
+        system: Optional[str],
+        label: str,
+    ) -> str:
+        """Gemini + Groq both speak the OpenAI chat-completions shape."""
+        payload_messages: List[Dict[str, str]] = []
+        if system:
+            payload_messages.append({"role": "system", "content": system})
+        payload_messages.extend(messages)
+        url = f"{base_url.rstrip('/')}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        try:
+            with httpx.Client(timeout=120.0) as client:
+                resp = client.post(
+                    url,
+                    headers=headers,
+                    json={
+                        "model": self.model,
+                        "messages": payload_messages,
+                        "temperature": 0.2,
+                    },
+                )
+                if resp.status_code >= 400:
+                    detail = resp.text
+                    try:
+                        err = resp.json()
+                        detail = str(
+                            (err.get("error") or {}).get("message")
+                            or err.get("error")
+                            or err
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+                    raise AIError(f"{label} error ({resp.status_code}): {detail}")
+                data = resp.json()
+        except AIError:
+            raise
+        except httpx.HTTPError as exc:
+            raise AIError(f"{label} request failed: {exc}") from exc
+
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise AIError(f"Unexpected {label} response: {data!r}") from exc
+        if not content or not str(content).strip():
+            raise AIError(f"Empty {label} response")
+        return str(content).strip()

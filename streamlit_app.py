@@ -27,6 +27,11 @@ def _apply_streamlit_secrets() -> None:
         "AI_PROVIDER",
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_MODEL",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GEMINI_MODEL",
+        "GROQ_API_KEY",
+        "GROQ_MODEL",
         "OLLAMA_BASE_URL",
         "OLLAMA_MODEL",
         "MAX_PAGES_DEFAULT",
@@ -62,9 +67,9 @@ def _running_on_streamlit_cloud() -> bool:
 
 _apply_streamlit_secrets()
 
-# On Streamlit Cloud, prefer Claude (Ollama is not available remotely)
+# On Streamlit Cloud prefer a free API (Gemini) unless explicitly set
 if _running_on_streamlit_cloud():
-    os.environ.setdefault("AI_PROVIDER", "claude")
+    os.environ.setdefault("AI_PROVIDER", "gemini")
 
 from app.ai.client import AIClient, AIError  # noqa: E402
 from app.ai.planner import PlannerSession  # noqa: E402
@@ -81,8 +86,10 @@ st.caption("AI plans the scrape · Python walks the sites · Excel download")
 
 if _running_on_streamlit_cloud():
     st.info(
-        "Running on Streamlit Cloud — use **Claude** (set `ANTHROPIC_API_KEY` in App secrets). "
-        "Local Ollama is not available here. Large scrapes can take several minutes."
+        "Running on Streamlit Cloud — **Ollama is not available here**. "
+        "Use **gemini** (free API key) or **groq** (free). "
+        "Add `GEMINI_API_KEY` under Manage app → Secrets. "
+        "Large scrapes can take several minutes."
     )
 
 
@@ -107,11 +114,33 @@ def _preview_sites(plan: ScrapePlan):
     return results
 
 
+_PROVIDER_OPTIONS = ["gemini", "groq", "claude", "ollama"]
+
+
+def _default_model_for(provider: str) -> str:
+    if provider == "ollama":
+        return settings.ollama_model
+    if provider == "claude":
+        return settings.anthropic_model
+    if provider == "groq":
+        return settings.groq_model
+    return settings.gemini_model
+
+
 def _default_provider_index() -> int:
-    provider = (settings.ai_provider or "ollama").lower()
-    if _running_on_streamlit_cloud():
-        provider = "claude"
-    return 0 if provider == "ollama" else 1
+    # Prefer whatever key is already configured; Gemini first for free cloud use
+    if settings.gemini_api_key or _running_on_streamlit_cloud():
+        preferred = "gemini"
+    elif settings.groq_api_key:
+        preferred = "groq"
+    elif settings.anthropic_api_key:
+        preferred = "claude"
+    else:
+        preferred = (settings.ai_provider or "ollama").lower()
+    try:
+        return _PROVIDER_OPTIONS.index(preferred)
+    except ValueError:
+        return 0
 
 
 _init_state()
@@ -120,17 +149,20 @@ with st.sidebar:
     st.header("Settings")
     provider = st.selectbox(
         "AI provider",
-        ["ollama", "claude"],
+        _PROVIDER_OPTIONS,
         index=_default_provider_index(),
-        help="On Streamlit Cloud, choose Claude and set ANTHROPIC_API_KEY in secrets.",
+        help="Cloud: gemini or groq (free API keys). Local Mac: ollama also works.",
     )
-    model = st.text_input(
-        "Model",
-        value=settings.ollama_model if provider == "ollama" else settings.anthropic_model,
-    )
+    model = st.text_input("Model", value=_default_model_for(provider))
     st.caption(f"Default max pages: {settings.max_pages_default}")
-    if not settings.anthropic_api_key and provider == "claude":
+    if provider == "gemini" and not settings.gemini_api_key:
+        st.warning("No GEMINI_API_KEY — get one free at https://aistudio.google.com/apikey")
+    if provider == "groq" and not settings.groq_api_key:
+        st.warning("No GROQ_API_KEY — get one free at https://console.groq.com/keys")
+    if provider == "claude" and not settings.anthropic_api_key:
         st.warning("No ANTHROPIC_API_KEY found. Add it under Manage app → Secrets.")
+    if provider == "ollama" and _running_on_streamlit_cloud():
+        st.error("Ollama only runs on your Mac — pick gemini or groq on Streamlit Cloud.")
     if st.button("Reset chat"):
         st.session_state.messages = []
         st.session_state.planner = None
