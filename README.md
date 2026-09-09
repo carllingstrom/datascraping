@@ -40,7 +40,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 ```
 AI_PROVIDER=gemini
 GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-3.6-flash
 ```
 
 **Groq** (free key): https://console.groq.com/keys
@@ -90,7 +90,7 @@ streamlit run streamlit_app.py
 ```toml
 AI_PROVIDER = "gemini"
 GEMINI_API_KEY = "your-key-from-aistudio.google.com"
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
 MAX_PAGES_DEFAULT = "500"
 ENRICH_DETAIL_LIMIT = "0"
 ```
