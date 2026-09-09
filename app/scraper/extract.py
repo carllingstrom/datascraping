@@ -408,15 +408,16 @@ def extract_page_rows(
 # Matched case-insensitively against whatever raw keys extract_next_data_listings /
 # parse_json_ld_products left on the row (see extract_next_data_listings's key passthrough).
 _FIELD_SYNONYMS: Dict[str, List[str]] = {
-    "model_year": ["yearofmanufacture", "modelyear", "year"],
+    "model_name": ["model", "name", "product_name", "title"],
+    "model_year": ["yearofmanufacture", "modelyear", "year", "car_year"],
     "hours": ["meterreadout", "odometer", "mileage"],
     "country": ["locationcountrycode", "country", "companycountry"],
     "category": ["categoryname", "catalogname", "category"],
     "listing_date": ["createdate", "listingdate", "datepublished", "datePosted"],
-    "listing_id": ["productid", "rblistingid", "listingid", "sku"],
+    "listing_id": ["productid", "rblistingid", "listingid", "sku", "id"],
     "make_model": ["brand_model", "brandmodel"],
-    "price": ["priceoriginal", "priceinusercurrency", "price"],
-    "currency": ["priceoriginalunit", "usercurrency", "currency"],
+    "price": ["priceoriginal", "priceinusercurrency", "price", "rate", "average_daily_rate"],
+    "currency": ["priceoriginalunit", "usercurrency", "currency", "currency_code"],
     "seller": ["companyname", "seller_name", "sellername"],
 }
 

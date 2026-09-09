@@ -8,7 +8,9 @@ from bs4 import BeautifulSoup
 
 from app.config import settings
 from app.models import FieldSpec, SiteSpec
+from app.scraper.adapters import maybe_json_api_for_url
 from app.scraper.extract import extract_page_rows, meta_fallback, _year_from_text
+from app.scraper.json_api import scrape_json_api
 from app.scraper.urls import extract_declared_total, guess_next_page, normalize_url
 
 
@@ -44,6 +46,23 @@ class HttpScraper:
         fields: List[FieldSpec],
         max_pages: int,
     ) -> List[dict]:
+        self.last_declared_totals = []
+
+        # JSON API path (explicit on the plan, or auto-detected for known SPAs like GoMore)
+        api = site.json_api or maybe_json_api_for_url(site.start_url)
+        if api is not None:
+            rows = scrape_json_api(
+                api,
+                fields=fields,
+                max_pages=max_pages,
+                site_name=site.name,
+                referer_url=site.start_url,
+            )
+            total = getattr(scrape_json_api, "last_declared_total", None)
+            if isinstance(total, int) and total > 0:
+                self.last_declared_totals.append((site.name, total))
+            return rows
+
         raw_urls = [site.start_url] + list(site.extra_urls)
         urls: List[str] = []
         for u in raw_urls:
@@ -57,7 +76,6 @@ class HttpScraper:
 
         collected: List[dict] = []
         visited: Set[str] = set()
-        self.last_declared_totals = []
 
         with httpx.Client(
             timeout=self.timeout, follow_redirects=True, headers=self.headers

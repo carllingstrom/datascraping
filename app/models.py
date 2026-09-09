@@ -25,6 +25,27 @@ class FieldSpec(BaseModel):
     required: bool = False
 
 
+class JsonApiSpec(BaseModel):
+    """Generic JSON listing API (SPA backends). Prefer this over HTML when the page is JS-rendered."""
+
+    url: str
+    method: Literal["GET", "POST"] = "POST"
+    # Static JSON body / query params. Pagination keys are injected at runtime.
+    body: Dict[str, Any] = Field(default_factory=dict)
+    headers: Dict[str, str] = Field(default_factory=dict)
+    # Dotted paths into the JSON response
+    items_path: str = "data.hits"
+    total_path: Optional[str] = "data.count"
+    # Pagination: offset = page_size * page_index (0-based), written into body/params
+    page_size: int = 60
+    page_size_key: Optional[str] = "limit"
+    offset_key: str = "offset"
+    # Map plan field name -> JSON key on each item (e.g. model_name -> model)
+    field_map: Dict[str, str] = Field(default_factory=dict)
+    # Optional absolute URL template using item keys, e.g. "https://gomore.se/hyrbil/{id}"
+    url_template: Optional[str] = None
+
+
 class SiteSpec(BaseModel):
     name: str
     start_url: str
@@ -37,6 +58,7 @@ class SiteSpec(BaseModel):
     login: Optional[LoginSpec] = None
     wait_for_selector: Optional[str] = None  # browser only
     extra_urls: List[str] = Field(default_factory=list)
+    json_api: Optional[JsonApiSpec] = None
 
 
 class ScrapePlan(BaseModel):
