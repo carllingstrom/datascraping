@@ -209,10 +209,16 @@ with tab_chat:
             st.markdown(prompt)
 
         try:
+            # Rebuild the client from current settings on every turn — cheap for
+            # gemini/groq/claude (no network call in ping()), and means a changed
+            # .env/Secrets model takes effect immediately instead of staying pinned
+            # to whatever was configured when this browser session first opened.
+            client = AIClient()
+            client.ping()
             if st.session_state.planner is None:
-                client = AIClient()
-                client.ping()
                 st.session_state.planner = PlannerSession(client)
+            else:
+                st.session_state.planner.client = client
             planner: PlannerSession = st.session_state.planner
             with st.chat_message("assistant"):
                 with st.spinner("Thinking…"):
