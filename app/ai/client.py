@@ -4,7 +4,7 @@ from typing import Dict, List, Optional, Set
 
 import httpx
 
-from app.config import settings
+from app.config import load_settings
 
 PROVIDERS: Set[str] = {"ollama", "claude", "gemini", "groq"}
 
@@ -14,14 +14,16 @@ class AIError(RuntimeError):
 
 
 class AIClient:
-    """Unified chat client: Ollama (local) + Claude / Gemini / Groq (API)."""
+    """Unified chat client: Ollama (local) + Gemini / Groq / Claude (API)."""
 
     def __init__(
         self,
         provider: Optional[str] = None,
         model: Optional[str] = None,
     ) -> None:
-        self.provider = (provider or settings.ai_provider).strip().lower()
+        # Always read current env (Streamlit secrets may have just been applied)
+        s = load_settings()
+        self.provider = (provider or s.ai_provider).strip().lower()
         if self.provider not in PROVIDERS:
             raise AIError(
                 f"Unknown AI_PROVIDER '{self.provider}'. "
@@ -29,30 +31,38 @@ class AIClient:
             )
 
         if self.provider == "ollama":
-            self.model = model or settings.ollama_model
+            self.model = model or s.ollama_model
+            self._api_key = ""
         elif self.provider == "claude":
-            self.model = model or settings.anthropic_model
-            if not settings.anthropic_api_key:
+            self.model = model or s.anthropic_model
+            self._api_key = s.anthropic_api_key
+            if not self._api_key:
                 raise AIError(
                     "ANTHROPIC_API_KEY is missing. Set it in .env / Streamlit secrets, "
                     "or switch to AI_PROVIDER=gemini (free) or ollama (local)."
                 )
         elif self.provider == "gemini":
-            self.model = model or settings.gemini_model
-            if not settings.gemini_api_key:
+            self.model = model or s.gemini_model
+            self._api_key = s.gemini_api_key
+            if not self._api_key:
                 raise AIError(
                     "GEMINI_API_KEY is missing.\n"
                     "Get a free key: https://aistudio.google.com/apikey\n"
                     "Then set GEMINI_API_KEY in .env or Streamlit secrets."
                 )
         else:  # groq
-            self.model = model or settings.groq_model
-            if not settings.groq_api_key:
+            self.model = model or s.groq_model
+            self._api_key = s.groq_api_key
+            if not self._api_key:
                 raise AIError(
                     "GROQ_API_KEY is missing.\n"
                     "Get a free key: https://console.groq.com/keys\n"
                     "Then set GROQ_API_KEY in .env or Streamlit secrets."
                 )
+
+        self._ollama_base_url = s.ollama_base_url
+        self._ollama_timeout = s.ollama_timeout
+        self._ollama_num_ctx = s.ollama_num_ctx
 
     def chat(self, messages: List[Dict[str, str]], system: Optional[str] = None) -> str:
         if self.provider == "ollama":
@@ -62,14 +72,14 @@ class AIClient:
         if self.provider == "gemini":
             return self._openai_compatible(
                 base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-                api_key=settings.gemini_api_key,
+                api_key=self._api_key,
                 messages=messages,
                 system=system,
                 label="Gemini",
             )
         return self._openai_compatible(
             base_url="https://api.groq.com/openai/v1",
-            api_key=settings.groq_api_key,
+            api_key=self._api_key,
             messages=messages,
             system=system,
             label="Groq",
@@ -84,19 +94,15 @@ class AIClient:
                 import anthropic  # noqa: F401
             except ImportError as exc:
                 raise AIError("anthropic package missing. Run: pip install anthropic") from exc
-            if not settings.anthropic_api_key:
+            if not self._api_key:
                 raise AIError("ANTHROPIC_API_KEY missing in .env")
             return f"claude ready ({self.model})"
         if self.provider == "gemini":
-            if not settings.gemini_api_key:
-                raise AIError("GEMINI_API_KEY missing")
             return f"gemini ready ({self.model}) — free-tier API"
-        if not settings.groq_api_key:
-            raise AIError("GROQ_API_KEY missing")
         return f"groq ready ({self.model}) — free-tier API"
 
     def _ping_ollama(self) -> str:
-        url = f"{settings.ollama_base_url}/api/tags"
+        url = f"{self._ollama_base_url}/api/tags"
         try:
             with httpx.Client(timeout=5.0) as client:
                 resp = client.get(url)
@@ -105,7 +111,7 @@ class AIClient:
         except httpx.ConnectError as exc:
             raise AIError(
                 "Ollama is not running (nothing at "
-                f"{settings.ollama_base_url}).\n"
+                f"{self._ollama_base_url}).\n"
                 "Fix:\n"
                 "  1) Install: https://ollama.com/download\n"
                 "  2) Open the Ollama app (or run: ollama serve)\n"
@@ -130,16 +136,16 @@ class AIClient:
         if system:
             payload_messages.append({"role": "system", "content": system})
         payload_messages.extend(messages)
-        url = f"{settings.ollama_base_url}/api/chat"
+        url = f"{self._ollama_base_url}/api/chat"
         try:
-            with httpx.Client(timeout=settings.ollama_timeout) as client:
+            with httpx.Client(timeout=self._ollama_timeout) as client:
                 resp = client.post(
                     url,
                     json={
                         "model": self.model,
                         "messages": payload_messages,
                         "stream": False,
-                        "options": {"num_ctx": settings.ollama_num_ctx},
+                        "options": {"num_ctx": self._ollama_num_ctx},
                     },
                 )
                 if resp.status_code >= 400:
@@ -165,11 +171,11 @@ class AIClient:
             raise
         except httpx.ConnectError as exc:
             raise AIError(
-                f"Cannot reach Ollama at {settings.ollama_base_url}. Is `ollama serve` running?"
+                f"Cannot reach Ollama at {self._ollama_base_url}. Is `ollama serve` running?"
             ) from exc
         except httpx.TimeoutException as exc:
             raise AIError(
-                f"Ollama request timed out after {settings.ollama_timeout}s."
+                f"Ollama request timed out after {self._ollama_timeout}s."
             ) from exc
         except httpx.HTTPError as exc:
             raise AIError(f"Ollama request failed: {exc}") from exc
@@ -190,7 +196,7 @@ class AIClient:
         except ImportError as exc:
             raise AIError("anthropic package not installed. Run: pip install anthropic") from exc
 
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        client = anthropic.Anthropic(api_key=self._api_key)
         kwargs = {
             "model": self.model,
             "max_tokens": 4096,

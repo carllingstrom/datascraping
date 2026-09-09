@@ -1,6 +1,7 @@
 """Streamlit UI for DataScraper — chat to plan, run scrape, download Excel.
 
-Works locally (Ollama or Claude) and on Streamlit Community Cloud (Claude via secrets).
+Local: Ollama / Gemini / Groq / Claude.
+Streamlit Cloud: Gemini or Groq (free API keys via Secrets).
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ if str(ROOT) not in sys.path:
 
 
 def _apply_streamlit_secrets() -> None:
-    """Map st.secrets into env vars before app.config loads settings."""
+    """Map st.secrets into env vars before settings are loaded."""
     try:
         secrets = st.secrets
     except Exception:  # noqa: BLE001
@@ -41,24 +42,22 @@ def _apply_streamlit_secrets() -> None:
     )
     for key in keys:
         try:
-            value = secrets.get(key)  # type: ignore[attr-defined]
+            value = secrets[key]
         except Exception:  # noqa: BLE001
-            value = secrets[key] if key in secrets else None
+            continue
         if value is not None and str(value).strip() != "":
             os.environ[key] = str(value).strip()
 
 
 def _running_on_streamlit_cloud() -> bool:
-    """Best-effort detect Streamlit Community Cloud (env vars change over time)."""
+    """Best-effort detect Streamlit Community Cloud."""
     if os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_RUNTIME_ENV"):
         return True
     hostname = (os.getenv("HOSTNAME") or "").lower()
     if "streamlit" in hostname or hostname.endswith(".streamlit.app"):
         return True
-    # Cloud checkouts typically live under /mount/src/<app>
     try:
-        cwd = Path.cwd().as_posix()
-        if "/mount/src/" in cwd:
+        if "/mount/src/" in Path.cwd().as_posix():
             return True
     except Exception:  # noqa: BLE001
         pass
@@ -66,19 +65,19 @@ def _running_on_streamlit_cloud() -> bool:
 
 
 _apply_streamlit_secrets()
-
-# On Streamlit Cloud prefer a free API (Gemini) unless explicitly set
 if _running_on_streamlit_cloud():
     os.environ.setdefault("AI_PROVIDER", "gemini")
 
 from app.ai.client import AIClient, AIError  # noqa: E402
 from app.ai.planner import PlannerSession  # noqa: E402
 from app.cli import load_plan, save_plan  # noqa: E402
-from app.config import settings  # noqa: E402
+from app.config import reload_settings  # noqa: E402
 from app.export.excel import rows_to_excel  # noqa: E402
 from app.models import ScrapePlan  # noqa: E402
 from app.scraper.engine import ScrapeEngine  # noqa: E402
 from app.scraper.preview import preview_url  # noqa: E402
+
+settings = reload_settings()
 
 st.set_page_config(page_title="DataScraper", page_icon="📦", layout="wide")
 st.title("DataScraper")
@@ -87,8 +86,8 @@ st.caption("AI plans the scrape · Python walks the sites · Excel download")
 if _running_on_streamlit_cloud():
     st.info(
         "Running on Streamlit Cloud — **Ollama is not available here**. "
-        "Use **gemini** (free API key) or **groq** (free). "
-        "Add `GEMINI_API_KEY` under Manage app → Secrets. "
+        "Use **gemini** (free) or **groq** (free). "
+        "Add `GEMINI_API_KEY` under **Manage app → Settings → Secrets**. "
         "Large scrapes can take several minutes."
     )
 
@@ -128,7 +127,6 @@ def _default_model_for(provider: str) -> str:
 
 
 def _default_provider_index() -> int:
-    # Prefer whatever key is already configured; Gemini first for free cloud use
     if settings.gemini_api_key or _running_on_streamlit_cloud():
         preferred = "gemini"
     elif settings.groq_api_key:
@@ -160,7 +158,7 @@ with st.sidebar:
     if provider == "groq" and not settings.groq_api_key:
         st.warning("No GROQ_API_KEY — get one free at https://console.groq.com/keys")
     if provider == "claude" and not settings.anthropic_api_key:
-        st.warning("No ANTHROPIC_API_KEY found. Add it under Manage app → Secrets.")
+        st.warning("No ANTHROPIC_API_KEY — add it under Manage app → Secrets.")
     if provider == "ollama" and _running_on_streamlit_cloud():
         st.error("Ollama only runs on your Mac — pick gemini or groq on Streamlit Cloud.")
     if st.button("Reset chat"):
