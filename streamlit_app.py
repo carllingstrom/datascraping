@@ -79,17 +79,70 @@ from app.scraper.preview import preview_url  # noqa: E402
 
 settings = reload_settings()
 
-st.set_page_config(page_title="DataScraper", page_icon="📦", layout="wide")
-st.title("DataScraper")
-st.caption("AI plans the scrape · Python walks the sites · Excel download")
+st.set_page_config(page_title="DataScraper", page_icon=None, layout="wide")
 
-if _running_on_streamlit_cloud():
-    st.info(
-        "Running on Streamlit Cloud — **Ollama is not available here**. "
-        "Use **gemini** (free) or **groq** (free). "
-        "Add `GEMINI_API_KEY` under **Manage app → Settings → Secrets**. "
-        "Large scrapes can take several minutes."
-    )
+st.markdown(
+    """
+    <style>
+    :root {
+        --ds-ink: #1c1f26;
+        --ds-muted: #5b6472;
+        --ds-line: #dfe2e7;
+        --ds-accent: #2f4858;
+        --ds-bg-soft: #f6f7f9;
+    }
+    html, body, [class*="css"] {
+        font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    #MainMenu, footer, header[data-testid="stHeader"] { visibility: hidden; height: 0; }
+    div.block-container { padding-top: 2.2rem; max-width: 1100px; }
+    h1 { font-weight: 600 !important; letter-spacing: -0.01em; color: var(--ds-ink); }
+    h1 + div p { color: var(--ds-muted) !important; font-size: 0.95rem; }
+    [data-testid="stSidebar"] {
+        border-right: 1px solid var(--ds-line);
+    }
+    .stButton>button, .stDownloadButton>button {
+        border-radius: 4px;
+        font-weight: 500;
+    }
+    [data-testid="stChatMessage"] { border: 1px solid var(--ds-line); border-radius: 8px; }
+    .stTabs [data-baseweb="tab"] { font-weight: 500; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.title("DataScraper")
+st.caption("AI-assisted scrape planning, executed by Python, exported to Excel.")
+
+
+def _model_for(provider: str) -> str:
+    if provider == "ollama":
+        return settings.ollama_model
+    if provider == "claude":
+        return settings.anthropic_model
+    if provider == "groq":
+        return settings.groq_model
+    return settings.gemini_model
+
+
+def _has_key_for(provider: str) -> bool:
+    if provider == "ollama":
+        return True  # no key needed; reachability is checked at chat time instead
+    if provider == "claude":
+        return bool(settings.anthropic_api_key)
+    if provider == "groq":
+        return bool(settings.groq_api_key)
+    return bool(settings.gemini_api_key)
+
+
+_PROVIDER = settings.ai_provider
+_MODEL = _model_for(_PROVIDER)
+
+if _PROVIDER == "ollama" and _running_on_streamlit_cloud():
+    st.error("This deployment is configured for Ollama, which only runs locally. Set AI_PROVIDER in Secrets.")
+elif not _has_key_for(_PROVIDER):
+    st.error(f"No API key configured for the '{_PROVIDER}' provider. Add it under Secrets (Cloud) or .env (local).")
 
 
 def _init_state() -> None:
@@ -113,54 +166,10 @@ def _preview_sites(plan: ScrapePlan):
     return results
 
 
-_PROVIDER_OPTIONS = ["gemini", "groq", "claude", "ollama"]
-
-
-def _default_model_for(provider: str) -> str:
-    if provider == "ollama":
-        return settings.ollama_model
-    if provider == "claude":
-        return settings.anthropic_model
-    if provider == "groq":
-        return settings.groq_model
-    return settings.gemini_model
-
-
-def _default_provider_index() -> int:
-    if settings.gemini_api_key or _running_on_streamlit_cloud():
-        preferred = "gemini"
-    elif settings.groq_api_key:
-        preferred = "groq"
-    elif settings.anthropic_api_key:
-        preferred = "claude"
-    else:
-        preferred = (settings.ai_provider or "ollama").lower()
-    try:
-        return _PROVIDER_OPTIONS.index(preferred)
-    except ValueError:
-        return 0
-
-
 _init_state()
 
 with st.sidebar:
-    st.header("Settings")
-    provider = st.selectbox(
-        "AI provider",
-        _PROVIDER_OPTIONS,
-        index=_default_provider_index(),
-        help="Cloud: gemini or groq (free API keys). Local Mac: ollama also works.",
-    )
-    model = st.text_input("Model", value=_default_model_for(provider))
-    st.caption(f"Default max pages: {settings.max_pages_default}")
-    if provider == "gemini" and not settings.gemini_api_key:
-        st.warning("No GEMINI_API_KEY — get one free at https://aistudio.google.com/apikey")
-    if provider == "groq" and not settings.groq_api_key:
-        st.warning("No GROQ_API_KEY — get one free at https://console.groq.com/keys")
-    if provider == "claude" and not settings.anthropic_api_key:
-        st.warning("No ANTHROPIC_API_KEY — add it under Manage app → Secrets.")
-    if provider == "ollama" and _running_on_streamlit_cloud():
-        st.error("Ollama only runs on your Mac — pick gemini or groq on Streamlit Cloud.")
+    st.caption(f"Provider: {_PROVIDER} ({_MODEL})")
     if st.button("Reset chat"):
         st.session_state.messages = []
         st.session_state.planner = None
@@ -168,7 +177,7 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    st.subheader("Or run a saved plan")
+    st.subheader("Run a saved plan")
     plan_files = sorted(settings.plans_dir.glob("*.json"))
     labels = [p.name for p in plan_files]
     chosen = st.selectbox("Plan file", labels) if labels else None
@@ -201,7 +210,7 @@ with tab_chat:
 
         try:
             if st.session_state.planner is None:
-                client = AIClient(provider=provider, model=model or None)
+                client = AIClient()
                 client.ping()
                 st.session_state.planner = PlannerSession(client)
             planner: PlannerSession = st.session_state.planner

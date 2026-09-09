@@ -4,7 +4,7 @@ Internal tool: chat with an AI to define a scrape baseline, then let Python walk
 
 ## Flow
 
-1. **Chat** (Ollama or Claude) → agree on goal, sites, fields, filters, login-or-not  
+1. **Chat** (Gemini by default) → agree on goal, sites, fields, filters, login-or-not  
 2. AI emits a **ScrapePlan** JSON (live-preview checked)  
 3. **Python engine** paginates mechanically until empty (or `max_pages`)  
 4. Results → **Excel** in `output/`
@@ -19,11 +19,24 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-### Ollama (default)
+### Gemini (default, free, recommended)
 
-```bash
-ollama pull llama3.2
-# AI_PROVIDER=ollama in .env
+Free key: https://aistudio.google.com/apikey
+
+```
+AI_PROVIDER=gemini
+GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-3.6-flash
+```
+
+### Groq (free alternative)
+
+Free key: https://console.groq.com/keys
+
+```
+AI_PROVIDER=groq
+GROQ_API_KEY=gsk_...
+GROQ_MODEL=llama-3.3-70b-versatile
 ```
 
 ### Claude (optional, paid API)
@@ -33,23 +46,17 @@ AI_PROVIDER=claude
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### Free cloud APIs (recommended for Streamlit Cloud)
+### Ollama (local, no API key — but slow)
 
-**Google Gemini** (free key): https://aistudio.google.com/apikey
-
-```
-AI_PROVIDER=gemini
-GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-3.6-flash
+```bash
+ollama pull llama3.2
+# AI_PROVIDER=ollama in .env
 ```
 
-**Groq** (free key): https://console.groq.com/keys
-
-```
-AI_PROVIDER=groq
-GROQ_API_KEY=gsk_...
-GROQ_MODEL=llama-3.3-70b-versatile
-```
+Runs fully locally with no API key, but on CPU-only hardware a 3B model can take
+minutes per planning turn on anything beyond a trivial request (verified: ~190s for
+a 9-site plan). Fine for quick, disposable scrapes; use Gemini/Groq for anything
+you need to iterate on quickly.
 
 ### Browser scrapes (optional)
 

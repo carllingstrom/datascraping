@@ -88,7 +88,7 @@ def load_settings() -> Settings:
     plans_dir = plans_raw if plans_raw.is_absolute() else base / plans_raw
 
     return Settings(
-        ai_provider=os.getenv("AI_PROVIDER", "ollama").strip().lower(),
+        ai_provider=os.getenv("AI_PROVIDER", "gemini").strip().lower(),
         ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/"),
         ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2"),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
