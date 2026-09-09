@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,6 +16,43 @@ def _int(name: str, default: int) -> int:
     if raw is None or raw.strip() == "":
         return default
     return int(raw)
+
+
+def _on_streamlit_cloud() -> bool:
+    if os.getenv("STREAMLIT_SHARING_MODE") or os.getenv("STREAMLIT_RUNTIME_ENV"):
+        return True
+    hostname = (os.getenv("HOSTNAME") or "").lower()
+    if "streamlit" in hostname:
+        return True
+    try:
+        if "/mount/src/" in Path.cwd().as_posix():
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
+def _writable_base() -> Path:
+    """Repo root locally; /tmp on Streamlit Cloud (repo mount is read-only)."""
+    if _on_streamlit_cloud():
+        base = Path(tempfile.gettempdir()) / "datascraping"
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+    return ROOT
+
+
+def _ensure_dir(path: Path) -> Path:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        # Prove we can write (Cloud often allows mkdir then fails on write)
+        probe = path / ".write_test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return path
+    except OSError:
+        fallback = Path(tempfile.gettempdir()) / "datascraping" / path.name
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
 
 
 @dataclass
@@ -40,7 +78,16 @@ class Settings:
 
 def load_settings() -> Settings:
     """Read settings from the current environment (call again after Streamlit secrets)."""
-    out = Settings(
+    base = _writable_base()
+    output_name = os.getenv("OUTPUT_DIR", "output")
+    plans_name = os.getenv("PLANS_DIR", "plans")
+    # Absolute env paths win; otherwise resolve under writable base
+    output_raw = Path(output_name)
+    plans_raw = Path(plans_name)
+    output_dir = output_raw if output_raw.is_absolute() else base / output_raw
+    plans_dir = plans_raw if plans_raw.is_absolute() else base / plans_raw
+
+    return Settings(
         ai_provider=os.getenv("AI_PROVIDER", "ollama").strip().lower(),
         ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/"),
         ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2"),
@@ -59,12 +106,9 @@ def load_settings() -> Settings:
         ),
         max_pages_default=_int("MAX_PAGES_DEFAULT", 500),
         enrich_detail_limit=_int("ENRICH_DETAIL_LIMIT", 0),
-        output_dir=ROOT / os.getenv("OUTPUT_DIR", "output"),
-        plans_dir=ROOT / os.getenv("PLANS_DIR", "plans"),
+        output_dir=_ensure_dir(output_dir),
+        plans_dir=_ensure_dir(plans_dir),
     )
-    out.output_dir.mkdir(parents=True, exist_ok=True)
-    out.plans_dir.mkdir(parents=True, exist_ok=True)
-    return out
 
 
 settings = load_settings()
