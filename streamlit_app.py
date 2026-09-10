@@ -179,6 +179,31 @@ def _preview_sites(plan: ScrapePlan):
     return results
 
 
+def _available_plans() -> list[tuple[str, Path]]:
+    """Bundled examples (shipped in repo) + plans saved this session/machine."""
+    items: list[tuple[str, Path]] = []
+    seen: set[str] = set()
+    for folder, suffix in (
+        (settings.plans_dir, ""),
+        (ROOT / "examples" / "plans", " · bundled"),
+    ):
+        if not folder.is_dir():
+            continue
+        for path in sorted(folder.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            key = path.name
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append((f"{path.name}{suffix}", path))
+    return items
+
+
+def _load_plan_bytes(raw: bytes) -> ScrapePlan:
+    import json
+
+    return ScrapePlan.model_validate(json.loads(raw.decode("utf-8")))
+
+
 _init_state()
 
 with st.sidebar:
@@ -190,22 +215,45 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    st.subheader("Run a saved plan")
-    plan_files = sorted(settings.plans_dir.glob("*.json"))
-    labels = [p.name for p in plan_files]
-    chosen = st.selectbox("Plan file", labels) if labels else None
-    if chosen and st.button("Load & run plan", type="primary"):
-        plan = load_plan(settings.plans_dir / chosen)
-        st.session_state.plan = plan
-        with st.spinner("Scraping… this can take a while for large catalogs"):
-            engine = ScrapeEngine()
-            rows = engine.run(plan)
-            path = rows_to_excel(rows, filename=(plan.title[:40] or "scrape"))
-            st.session_state.last_excel = path
-            st.session_state.last_rows = len(rows)
-            for w in engine.coverage_warnings:
-                st.warning(w)
-        st.success(f"Got {len(rows)} rows → {path.name}")
+    st.subheader("Load a plan")
+    plan_options = _available_plans()
+    if plan_options:
+        labels = [label for label, _ in plan_options]
+        chosen_label = st.selectbox("Saved / bundled plans", labels)
+        chosen_path = dict(plan_options)[chosen_label]
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("Load", use_container_width=True):
+                plan = load_plan(chosen_path)
+                st.session_state.plan = plan
+                st.success(f"Loaded “{plan.title}” — open the Plan tab.")
+        with c2:
+            if st.button("Load & run", type="primary", use_container_width=True):
+                plan = load_plan(chosen_path)
+                st.session_state.plan = plan
+                with st.spinner("Scraping… this can take a while for large catalogs"):
+                    engine = ScrapeEngine()
+                    rows = engine.run(plan)
+                    path = rows_to_excel(rows, filename=(plan.title[:40] or "scrape"))
+                    st.session_state.last_excel = path
+                    st.session_state.last_rows = len(rows)
+                    for w in engine.coverage_warnings:
+                        st.warning(w)
+                st.success(f"Got {len(rows)} rows → {path.name}")
+    else:
+        st.caption("No plans on disk yet.")
+
+    uploaded = st.file_uploader("Upload plan JSON", type=["json"], key="plan_upload")
+    if uploaded is not None:
+        if st.button("Load uploaded plan", use_container_width=True):
+            try:
+                plan = _load_plan_bytes(uploaded.getvalue())
+                # Persist into the writable plans dir so it shows in the list next time
+                saved = save_plan(plan)
+                st.session_state.plan = plan
+                st.success(f"Loaded “{plan.title}” (saved as {saved.name}). Open the Plan tab.")
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Could not load plan: {exc}")
 
 
 tab_chat, tab_plan, tab_results = st.tabs(["Chat", "Plan", "Results"])
@@ -254,7 +302,7 @@ with tab_chat:
 with tab_plan:
     plan: Optional[ScrapePlan] = st.session_state.plan
     if not plan:
-        st.write("No plan yet — chat first, or load one from the sidebar.")
+        st.write("No plan yet — chat first, or load / upload one from the sidebar.")
     else:
         st.subheader(plan.title)
         st.write(plan.goal)

@@ -1,0 +1,28 @@
+{
+  "title": "GoMore Stockholm cars",
+  "goal": "Collect model_name and price for all GoMore car rental listings in Stockholm",
+  "fields": [
+    {"name": "model_name", "description": "Car model name", "required": true},
+    {"name": "price", "description": "Rental price"},
+    {"name": "url", "description": "Listing URL"},
+    {"name": "model_year", "description": "Model year"}
+  ],
+  "sites": [
+    {
+      "name": "GoMore Stockholm",
+      "start_url": "https://gomore.se/biluthyrning?frontpage=true&place=eyJuYW1lIjoiU3RvY2tob2xtIiwicGxhY2VfcmVmIjoiZ29vZ2xlLUNoSUp5d3RrR1RGMlgwWVJabmVkWjlNbkRhZyIsImNvb3JkaW5hdGVzIjp7ImxhdGl0dWRlIjo1OS4zMzI3MDM2LCJsb25naXR1ZGUiOjE4LjA2NTYyNTV9fQ%3D%3D",
+      "method": "http",
+      "notes": "JS SPA — engine auto-uses rental_ads/search JSON API",
+      "list_selector": null,
+      "fields": [],
+      "pagination_selector": null,
+      "max_pages": 50,
+      "login": null,
+      "wait_for_selector": null,
+      "extra_urls": []
+    }
+  ],
+  "filters": {},
+  "max_items": null,
+  "notes": "Test plan for GoMore Stockholm listings"
+}
