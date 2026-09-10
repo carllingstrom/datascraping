@@ -90,7 +90,15 @@ from app.scraper.preview import preview_url  # noqa: E402
 
 settings = reload_settings()
 
-st.set_page_config(page_title="DataScraper", page_icon=None, layout="wide")
+st.set_page_config(
+    page_title="DataScraper",
+    page_icon=None,
+    layout="wide",
+    # Without this, Streamlit auto-collapses the sidebar on narrower viewports
+    # (roughly <768px) with only a small, easy-to-miss ">>" arrow to reopen it —
+    # which looks exactly like "nothing in the sidebar happened". Force it open.
+    initial_sidebar_state="expanded",
+)
 
 st.markdown(
     """
