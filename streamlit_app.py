@@ -19,7 +19,12 @@ if str(ROOT) not in sys.path:
 
 
 def _apply_streamlit_secrets() -> None:
-    """Map st.secrets into env vars before settings are loaded."""
+    """Map st.secrets into env vars before settings are loaded.
+
+    Only credentials + operational knobs — never model IDs. Streamlit Cloud
+    Secrets often keep stale GEMINI_MODEL values that override code defaults
+    and break chat after Gemini renames models.
+    """
     try:
         secrets = st.secrets
     except Exception:  # noqa: BLE001
@@ -27,14 +32,10 @@ def _apply_streamlit_secrets() -> None:
     keys = (
         "AI_PROVIDER",
         "ANTHROPIC_API_KEY",
-        "ANTHROPIC_MODEL",
         "GEMINI_API_KEY",
         "GOOGLE_API_KEY",
-        "GEMINI_MODEL",
         "GROQ_API_KEY",
-        "GROQ_MODEL",
         "OLLAMA_BASE_URL",
-        "OLLAMA_MODEL",
         "MAX_PAGES_DEFAULT",
         "ENRICH_DETAIL_LIMIT",
         "REQUEST_TIMEOUT",
@@ -47,6 +48,16 @@ def _apply_streamlit_secrets() -> None:
             continue
         if value is not None and str(value).strip() != "":
             os.environ[key] = str(value).strip()
+
+    # Drop any model pins that may already be in the process env from Secrets
+    # or a leftover local .streamlit/secrets.toml so code defaults always win.
+    for stale in (
+        "GEMINI_MODEL",
+        "GROQ_MODEL",
+        "ANTHROPIC_MODEL",
+        "OLLAMA_MODEL",
+    ):
+        os.environ.pop(stale, None)
 
 
 def _running_on_streamlit_cloud() -> bool:
@@ -142,8 +153,10 @@ _MODEL = _model_for(_PROVIDER)
 if _PROVIDER == "ollama" and _running_on_streamlit_cloud():
     st.error("This deployment is configured for Ollama, which only runs locally. Set AI_PROVIDER in Secrets.")
 elif not _has_key_for(_PROVIDER):
-    st.error(f"No API key configured for the '{_PROVIDER}' provider. Add it under Secrets (Cloud) or .env (local).")
-
+    st.error(
+        f"No API key configured for the '{_PROVIDER}' provider. "
+        "Add the key under Secrets (Cloud) or .env (local) — do not set GEMINI_MODEL in Secrets."
+    )
 
 def _init_state() -> None:
     if "messages" not in st.session_state:

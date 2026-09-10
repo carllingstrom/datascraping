@@ -92,12 +92,12 @@ streamlit run streamlit_app.py
 1. Push this repo to GitHub (already: `carllingstrom/datascraping`).
 2. Go to [share.streamlit.io](https://share.streamlit.io) → **New app**.
 3. Choose repo `carllingstrom/datascraping`, branch `main`, main file `streamlit_app.py`.
-4. Under **Advanced settings → Secrets**, paste (Gemini is free):
+4. Under **Advanced settings → Secrets**, paste **only** the API key (Gemini is free).  
+   Do **not** put `GEMINI_MODEL` in Secrets — model IDs are pinned in code so a stale secret cannot break chat after Google renames models:
 
 ```toml
 AI_PROVIDER = "gemini"
 GEMINI_API_KEY = "your-key-from-aistudio.google.com"
-GEMINI_MODEL = "gemini-3.6-flash"
 MAX_PAGES_DEFAULT = "500"
 ENRICH_DETAIL_LIMIT = "0"
 ```
