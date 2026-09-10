@@ -219,7 +219,7 @@ with st.sidebar:
     plan_options = _available_plans()
     if plan_options:
         labels = [label for label, _ in plan_options]
-        chosen_label = st.selectbox("Saved / bundled plans", labels)
+        chosen_label = st.selectbox("Saved / bundled plans", labels, key="plan_select")
         chosen_path = dict(plan_options)[chosen_label]
         c1, c2 = st.columns(2)
         with c1:
