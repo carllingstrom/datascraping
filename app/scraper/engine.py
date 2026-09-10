@@ -8,6 +8,14 @@ from app.scraper.extract import apply_filters, merge_field_map
 from app.scraper.http_scraper import HttpScraper
 
 
+def _playwright_available() -> bool:
+    try:
+        import playwright  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 class ScrapeEngine:
     """Execute a ScrapePlan with HTTP (default) and Playwright when needed."""
 
@@ -23,6 +31,23 @@ class ScrapeEngine:
     ) -> List[dict]:
         credentials_by_site = credentials_by_site or {}
         all_rows: List[dict] = []
+        self.coverage_warnings = []
+
+        # A plan's method:"browser" only reaches here unverified when it was loaded
+        # straight from disk (sidebar "Load"/"Load & run", uploaded JSON) — plans
+        # freshly drafted by the AI already get this downgrade in app.ai.planner's
+        # parse_plan(). Apply it here too so EVERY entry point is protected, not
+        # just the chat path: confirmed a saved plan with method:"browser" crashes
+        # ScrapeEngine.run() with a raw Playwright-missing error otherwise.
+        if not _playwright_available():
+            for site in plan.sites:
+                if site.method == "browser" and not site.login:
+                    site.method = "http"
+                    self.coverage_warnings.append(
+                        f"{site.name}: downgraded from browser to http — no login needed "
+                        "and Playwright isn't installed (pip install -r requirements-browser.txt "
+                        "to enable browser mode)."
+                    )
 
         needs_browser = any(
             site.method == "browser" or site.login is not None for site in plan.sites
@@ -64,7 +89,6 @@ class ScrapeEngine:
             filtered = filtered[: plan.max_items]
 
         # Surface coverage gaps when a site declared a much larger catalog
-        self.coverage_warnings: List[str] = []
         declared = getattr(self.http, "last_declared_totals", []) or []
         scraped_by_site: dict = {}
         for row in filtered:
