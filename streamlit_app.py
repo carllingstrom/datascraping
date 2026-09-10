@@ -110,10 +110,24 @@ st.markdown(
         --ds-accent: #2f4858;
         --ds-bg-soft: #f6f7f9;
     }
-    html, body, [class*="css"] {
+    /* font-family is inherited — setting it on body alone reaches every normal text
+       element without the blanket [class*="css"] selector this used to have. That
+       selector matched icon-font spans too (Streamlit's sidebar expand/collapse arrows
+       are a ligature-text icon font, e.g. "keyboard_double_arrow_right" rendered via a
+       specific font-family) and overrode their font, so the ligature text rendered as
+       literal oversized text instead of the arrow glyph — invisible-looking in a tiny
+       icon button. Confirmed via computed style before this fix. */
+    html, body {
         font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
-    #MainMenu, footer, header[data-testid="stHeader"] { visibility: hidden; height: 0; }
+    /* NOT hiding header[data-testid="stHeader"] itself — the sidebar's own reopen
+       control, [data-testid="stExpandSidebarButton"], lives inside that header, and
+       visibility:hidden is inherited: hiding the header made the reopen arrow
+       unreachable (invisible AND unclickable) whenever the sidebar was collapsed,
+       with no way to bring it back. Confirmed via the live DOM (ancestor chain walk)
+       that this exact rule was the cause. Hide only the specific decorative buttons
+       inside the header instead. */
+    footer, [data-testid="stAppDeployButton"], [data-testid="stMainMenu"] { visibility: hidden; }
     div.block-container { padding-top: 2.2rem; max-width: 1100px; }
     h1 { font-weight: 600 !important; letter-spacing: -0.01em; color: var(--ds-ink); }
     h1 + div p { color: var(--ds-muted) !important; font-size: 0.95rem; }
