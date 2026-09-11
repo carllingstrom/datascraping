@@ -59,6 +59,8 @@ class ScrapeEngine:
             browser = BrowserScraper(headless=self.headless)
             browser.__enter__()
 
+        declared_totals: List[Tuple[str, int]] = []
+        page_errors: List[str] = []
         try:
             for site in plan.sites:
                 fields = plan.resolved_fields_for(site)
@@ -74,6 +76,11 @@ class ScrapeEngine:
                     browser=browser,
                     credentials=credentials_by_site.get(site.name),
                 )
+                # Read these right after this site's call — self.http.scrape_site()
+                # resets both lists at its own start, so capturing them only once
+                # after the whole loop would silently drop every site but the last.
+                declared_totals.extend(getattr(self.http, "last_declared_totals", []) or [])
+                page_errors.extend(getattr(self.http, "page_errors", []) or [])
                 for row in rows:
                     all_rows.append(merge_field_map(row, enrich_fields))
                 # NOTE: max_items is enforced once, below, on the final filtered result —
@@ -88,13 +95,17 @@ class ScrapeEngine:
         if plan.max_items:
             filtered = filtered[: plan.max_items]
 
+        for err in page_errors:
+            self.coverage_warnings.append(
+                f"A page failed after retries and was skipped (results before it are kept): {err}"
+            )
+
         # Surface coverage gaps when a site declared a much larger catalog
-        declared = getattr(self.http, "last_declared_totals", []) or []
         scraped_by_site: dict = {}
         for row in filtered:
             site = str(row.get("_site") or "")
             scraped_by_site[site] = scraped_by_site.get(site, 0) + 1
-        for site_name, total in declared:
+        for site_name, total in declared_totals:
             got = scraped_by_site.get(site_name, 0)
             if total > 0 and got < total * 0.5:
                 self.coverage_warnings.append(

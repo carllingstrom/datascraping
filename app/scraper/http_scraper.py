@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import List, Optional, Set, Tuple
 from urllib.parse import urljoin
 
@@ -13,6 +14,11 @@ from app.scraper.extract import extract_page_rows, meta_fallback, _year_from_tex
 from app.scraper.json_api import scrape_json_api
 from app.scraper.urls import extract_declared_total, guess_next_page, normalize_url
 
+# Retried: transient network hiccups and rate-limit/server-overload responses — worth
+# a few seconds' wait since the next attempt often just works. NOT retried: 404 etc,
+# where the URL itself is the problem and retrying changes nothing.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+
 
 class HttpScraper:
     def __init__(self, timeout: Optional[int] = None) -> None:
@@ -23,6 +29,7 @@ class HttpScraper:
         }
         # Filled during scrape_site — engine/CLI can surface coverage warnings
         self.last_declared_totals: List[Tuple[str, int]] = []
+        self.page_errors: List[str] = []
 
     def fetch(self, url: str, client: Optional[httpx.Client] = None) -> BeautifulSoup:
         clean = normalize_url(url)
@@ -40,6 +47,34 @@ class HttpScraper:
             resp.raise_for_status()
             return BeautifulSoup(resp.text, "lxml")
 
+    def _fetch_with_retry(
+        self,
+        url: str,
+        client: httpx.Client,
+        attempts: int = 3,
+        backoff: float = 2.0,
+    ) -> Optional[BeautifulSoup]:
+        """Fetch a page, retrying transient failures (rate limits, network blips,
+        server overload) a few times before giving up. Returns None — instead of
+        raising — once attempts are exhausted, so ONE bad page during a long,
+        many-page pagination run degrades that page rather than destroying every
+        row already collected from the pages before it.
+        """
+        last_error: Optional[Exception] = None
+        for attempt in range(attempts):
+            try:
+                return self.fetch(url, client=client)
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if exc.response.status_code not in _RETRYABLE_STATUS:
+                    break  # e.g. 404 — retrying won't change anything
+            except httpx.TransportError as exc:
+                last_error = exc  # connect/read timeout, DNS blip, etc. — worth a retry
+            if attempt < attempts - 1:
+                time.sleep(backoff * (attempt + 1))
+        self.page_errors.append(f"{url}: {last_error}")
+        return None
+
     def scrape_site(
         self,
         site: SiteSpec,
@@ -47,6 +82,7 @@ class HttpScraper:
         max_pages: int,
     ) -> List[dict]:
         self.last_declared_totals = []
+        self.page_errors = []
 
         # JSON API path (explicit on the plan, or auto-detected for known SPAs like GoMore)
         api = site.json_api or maybe_json_api_for_url(site.start_url)
@@ -86,7 +122,13 @@ class HttpScraper:
                     if not page_url or page_url in visited:
                         break
                     visited.add(page_url)
-                    soup = self.fetch(page_url, client=client)
+                    soup = self._fetch_with_retry(page_url, client=client)
+                    if soup is None:
+                        # Exhausted retries (rate-limited, blocked, or a persistent
+                        # network fault). Keep every row already collected — from
+                        # this site and any other in the plan — instead of losing
+                        # the whole run to one bad page deep into pagination.
+                        break
 
                     if page_idx == 0:
                         declared = extract_declared_total(soup)
